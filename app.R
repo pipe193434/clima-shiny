@@ -273,6 +273,37 @@ ui <- fluidPage(
         "del aumento en el uso de energías renovables, aunque no es un patrón constante."
       ), class = "insight-text")
     )
+
+  ),
+
+  # Chart 6: Heatmap temperatura
+  tags$div(class = "chart-card",
+    tags$h2("Temperatura por Pa\u00eds y Mes"),
+    plotlyOutput("plot_heatmap", height = "440px"),
+    tags$div(class = "insight-wrap",
+      tags$p("Analisis", class = "insight-title"),
+      tags$p("El mapa de calor revela patrones estacionales claros. Pa\u00edses como Canada y Norway muestran temperaturas muy bajas en invierno y picos en verano, mientras que Australia presenta el patr\u00f3n inverso por estar en el hemisferio sur. Indonesia e India mantienen temperaturas altas y estables durante todo el a\u00f1o al ser pa\u00edses tropicales.", class = "insight-text")
+    )
+  ),
+
+  # Chart 7: Scatter consumo vs CO2
+  tags$div(class = "chart-card",
+    tags$h2("Consumo vs CO2 por Pa\u00eds"),
+    plotlyOutput("plot_scatter", height = "420px"),
+    tags$div(class = "insight-wrap",
+      tags$p("Analisis", class = "insight-title"),
+      tags$p("El gr\u00e1fico muestra la relaci\u00f3n entre consumo energ\u00e9tico promedio y emisiones de CO\u2082 por pa\u00eds. El color refleja el porcentaje de renovables: pa\u00edses con mayor participaci\u00f3n de energ\u00eda limpia tienden a emitir menos CO\u2082 para niveles similares de consumo.", class = "insight-text")
+    )
+  ),
+
+  # Chart 8: Evolución anual CO2
+  tags$div(class = "chart-card",
+    tags$h2("Evoluci\u00f3n Anual de CO2"),
+    plotlyOutput("plot_co2_trend", height = "380px"),
+    tags$div(class = "insight-wrap",
+      tags$p("Analisis", class = "insight-title"),
+      tags$p("La evoluci\u00f3n anual de emisiones de CO\u2082 muestra las variaciones entre 2020 y 2024. Los cambios a\u00f1o a a\u00f1o reflejan la influencia de la actividad industrial, la adopci\u00f3n de renovables y factores externos. La tendencia permite identificar si los pa\u00edses est\u00e1n avanzando en la reducci\u00f3n de sus emisiones.", class = "insight-text")
+    )
   )
 )
 
@@ -409,8 +440,8 @@ server <- function(input, output, session) {
     p <- ggplot(co2, aes(x = country, y = val, fill = fill_col,
       text = paste0(country, "<br>CO\u2082 promedio: ", round(val, 1), " ton/d\u00eda"))) +
       geom_col(width = 0.72) +
-      geom_text(aes(label = round(val, 0)), vjust = -0.45,
-                size = 2.8, color = "#555", fontface = "bold") +
+      geom_text(aes(label = round(val, 0)), vjust = -0.5,
+                size = 3.2, color = "#222", fontface = "bold") +
       scale_fill_identity() +
       scale_y_continuous(expand = expansion(mult = c(0, .13))) +
       labs(x = NULL, y = "CO\u2082 promedio") +
@@ -460,7 +491,15 @@ server <- function(input, output, session) {
         panel.grid.major.x = element_blank()
       )
 
-    fig <- ggplotly(p) %>%
+    # Etiquetas de mediana dentro de la caja (como D3)
+    p <- p +
+      geom_text(data = order_med,
+                aes(x = country, y = med,
+                    label = paste0(round(med / 1000, 1), "k")),
+                size = 2.7, color = "#fff", fontface = "bold",
+                vjust = 0.4, inherit.aes = FALSE)
+
+    ggplotly(p) %>%
       add_chart_titles(
         title    = "Distribuci\u00f3n del consumo energ\u00e9tico por pa\u00eds",
         subtitle = "Mediana, rango intercuart\u00edlico y valores extremos \u2014 ordenado por consumo mediano",
@@ -468,29 +507,6 @@ server <- function(input, output, session) {
       ) %>%
       layout(hoverlabel = hover_style) %>%
       config(displayModeBar = FALSE)
-
-    # Añadir etiquetas de mediana dentro de cada caja (como el D3)
-    med_labels <- order_med %>%
-      mutate(
-        x_pos = seq_along(country),
-        label = paste0(round(med / 1000, 1), "k")
-      )
-
-    for (i in seq_len(nrow(med_labels))) {
-      fig <- fig %>% add_annotations(
-        x         = med_labels$country[i],
-        y         = med_labels$med[i],
-        text      = med_labels$label[i],
-        xref      = "x", yref = "y",
-        showarrow = FALSE,
-        font      = list(size = 9, color = "#3a3939",
-                         family = "Segoe UI, sans-serif",
-                         weight = "bold"),
-        yshift    = 8
-      )
-    }
-
-    fig
   })
 
   # ── CHART 4: Energía renovable por país ──────────────────────────────────
@@ -608,6 +624,187 @@ server <- function(input, output, session) {
           showline  = TRUE,
           linecolor = "#d8d5ce",
           title     = list(text = "Emisiones de CO\u2082",
+                            font = list(size = 10, color = "#aaa"))
+        ),
+        paper_bgcolor = "rgba(0,0,0,0)",
+        plot_bgcolor  = "rgba(0,0,0,0)"
+      ) %>%
+      config(displayModeBar = FALSE)
+  })
+
+  # ── CHART 6: Heatmap temperatura por país y mes ───────────────────────────
+  output$plot_heatmap <- renderPlotly({
+    d <- filtered(); req(nrow(d) > 0)
+
+    heat <- d %>%
+      mutate(mes = format(date, "%b"), mes_num = month(date)) %>%
+      group_by(country, mes, mes_num) %>%
+      summarise(temp = mean(avg_temperature, na.rm = TRUE), .groups = "drop") %>%
+      arrange(mes_num) %>%
+      mutate(mes = factor(mes, levels = unique(mes)))
+
+    plot_ly(heat,
+            x = ~mes, y = ~country, z = ~round(temp, 1),
+            type = "heatmap",
+            colorscale = list(
+              list(0,   "#fff5eb"),
+              list(0.2, "#fdd0a2"),
+              list(0.4, "#fdae6b"),
+              list(0.6, "#f16913"),
+              list(0.8, "#d94801"),
+              list(1,   "#7f2704")
+            ),
+            text = ~paste0(country, " — ", mes, "<br>Temp: ", round(temp, 1), " °C"),
+            hoverinfo = "text",
+            showscale = TRUE,
+            colorbar = list(
+              title = list(text = "°C", font = list(size = 11, color = "#888")),
+              tickfont = list(size = 9, color = "#888"),
+              thickness = 12, len = 0.6
+            )
+    ) %>%
+      add_chart_titles(
+        title    = "Temperatura promedio por pa\u00eds y mes",
+        subtitle = "Promedio hist\u00f3rico 2020\u20132024 \u2014 paleta naranja-rojo (mayor temperatura = m\u00e1s oscuro)",
+        question = "\u00bfC\u00f3mo var\u00eda la temperatura seg\u00fan el pa\u00eds y la \u00e9poca del a\u00f1o?"
+      ) %>%
+      layout(
+        hoverlabel = hover_style,
+        xaxis = list(title = list(text = "Mes", font = list(size = 10, color = "#aaa")),
+                     tickfont = list(size = 9, color = "#888")),
+        yaxis = list(title = "", tickfont = list(size = 9, color = "#888")),
+        paper_bgcolor = "rgba(0,0,0,0)",
+        plot_bgcolor  = "rgba(0,0,0,0)"
+      ) %>%
+      config(displayModeBar = FALSE)
+  })
+
+  # ── CHART 7: Scatter consumo vs CO2 por país ──────────────────────────────
+  output$plot_scatter <- renderPlotly({
+    d <- filtered(); req(nrow(d) > 0)
+
+    by_country <- d %>%
+      group_by(country) %>%
+      summarise(
+        consumo  = mean(energy_consumption, na.rm = TRUE),
+        co2      = mean(co2_emission,       na.rm = TRUE),
+        renew    = mean(renewable_share,    na.rm = TRUE),
+        .groups  = "drop"
+      )
+
+    plot_ly(by_country,
+            x    = ~consumo,
+            y    = ~co2,
+            text = ~paste0(country,
+                           "<br>Consumo: ", round(consumo), " MWh",
+                           "<br>CO\u2082: ", round(co2, 1), " ton",
+                           "<br>Renovable: ", round(renew, 1), "%"),
+            type      = "scatter",
+            mode      = "markers+text",
+            textposition = "top center",
+            textfont  = list(size = 9, color = "#555"),
+            marker    = list(
+              size    = ~renew * 2.8,
+              color   = ~renew,
+              colorscale = list(
+                list(0,   "#7b2d8b"),
+                list(0.3, "#c06ec0"),
+                list(0.6, "#f4a8d4"),
+                list(1,   "#fde8f5")
+              ),
+              reversescale = TRUE,
+              showscale = TRUE,
+              colorbar  = list(
+                title = list(text = "% Renov.", font = list(size = 10, color = "#888")),
+                tickfont = list(size = 9, color = "#888"),
+                thickness = 12, len = 0.6
+              ),
+              line = list(color = "#fff", width = 1.2)
+            ),
+            hoverinfo = "text",
+            showlegend = FALSE
+    ) %>%
+      add_chart_titles(
+        title    = "Consumo energ\u00e9tico vs Emisiones de CO\u2082 por pa\u00eds",
+        subtitle = "Cada punto es un pa\u00eds — tama\u00f1o y color: % de energ\u00eda renovable",
+        question = "\u00bfLos pa\u00edses con m\u00e1s renovables contaminan menos?"
+      ) %>%
+      layout(
+        hoverlabel = hover_style,
+        xaxis = list(
+          title    = list(text = "Consumo energ\u00e9tico promedio (MWh)",
+                          font = list(size = 10, color = "#aaa")),
+          tickfont = list(size = 9, color = "#888"),
+          showgrid = TRUE, gridcolor = GREY_GRID, griddash = "dash",
+          zeroline = FALSE, showline = TRUE, linecolor = "#d8d5ce"
+        ),
+        yaxis = list(
+          title    = list(text = "Emisiones CO\u2082 promedio (ton/d\u00eda)",
+                          font = list(size = 10, color = "#aaa")),
+          tickfont = list(size = 9, color = "#888"),
+          showgrid = TRUE, gridcolor = GREY_GRID, griddash = "dash",
+          zeroline = FALSE, showline = TRUE, linecolor = "#d8d5ce"
+        ),
+        paper_bgcolor = "rgba(0,0,0,0)",
+        plot_bgcolor  = "rgba(0,0,0,0)"
+      ) %>%
+      config(displayModeBar = FALSE)
+  })
+
+  # ── CHART 8: Evolución anual CO2 ─────────────────────────────────────────
+  output$plot_co2_trend <- renderPlotly({
+    d <- filtered(); req(nrow(d) > 0)
+
+    anual <- d %>%
+      group_by(year) %>%
+      summarise(co2 = mean(co2_emission, na.rm = TRUE), .groups = "drop") %>%
+      arrange(year)
+
+    tip <- paste0("A\u00f1o: ", anual$year, "<br>CO\u2082 promedio: ", round(anual$co2, 1), " ton/d\u00eda")
+
+    plot_ly(anual, x = ~year) %>%
+      add_trace(
+        y         = ~co2,
+        type      = "scatter", mode = "lines",
+        fill      = "tozeroy",
+        fillcolor = "rgba(99,71,153,0.10)",
+        line      = list(color = "#6347a0", width = 2.5),
+        hoverinfo = "skip",
+        showlegend = FALSE
+      ) %>%
+      add_trace(
+        y         = ~co2,
+        type      = "scatter", mode = "markers+text",
+        marker    = list(color = "#6347a0", size = 10,
+                         line = list(color = "#fff", width = 2)),
+        text      = ~round(co2, 1),
+        textposition = "top center",
+        textfont  = list(size = 10, color = "#6347a0", family = "Segoe UI, sans-serif"),
+        hovertext = tip,
+        hoverinfo = "text",
+        showlegend = FALSE
+      ) %>%
+      add_chart_titles(
+        title    = "Evoluci\u00f3n anual de emisiones de CO\u2082 (2020\u20132024)",
+        subtitle = "Promedio global por a\u00f1o \u2014 todos los pa\u00edses seleccionados",
+        question = "\u00bfLas emisiones han aumentado o disminuido con los a\u00f1os?"
+      ) %>%
+      layout(
+        hoverlabel = hover_style,
+        xaxis = list(
+          tickfont  = list(size = 10, color = "#888"),
+          tickvals  = as.list(anual$year),
+          ticktext  = as.list(as.character(anual$year)),
+          showgrid  = TRUE, gridcolor = GREY_GRID, griddash = "dash",
+          zeroline  = FALSE, showline = TRUE, linecolor = "#d8d5ce",
+          title     = list(text = "A\u00f1o", font = list(size = 10, color = "#aaa"))
+        ),
+        yaxis = list(
+          tickfont  = list(size = 9, color = "#888"),
+          rangemode = "tozero",
+          showgrid  = TRUE, gridcolor = GREY_GRID, griddash = "dash",
+          zeroline  = FALSE, showline = TRUE, linecolor = "#d8d5ce",
+          title     = list(text = "CO\u2082 promedio (ton/d\u00eda)",
                             font = list(size = 10, color = "#aaa"))
         ),
         paper_bgcolor = "rgba(0,0,0,0)",
